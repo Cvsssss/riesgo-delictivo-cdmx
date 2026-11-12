@@ -3,7 +3,7 @@
 **Consultora:** Data Bloom
 **Cliente:** SAFEZONE MÉXICO (Área de Inteligencia de Datos)
 **Respuesta al RFP del:** 6 de octubre de 2026
-**Versión:** 1.1
+**Versión:** 1.3
 **Equipo:**
 - Amir Cuevas Quintana — Ing. en Computación — Líder de proyecto y arquitecto de datos
 - Uriel Ivan Guerrero Lopez — Ing. en Computación — Ingeniero de datos (ingesta y orquestación)
@@ -15,20 +15,19 @@
 
 ## 1. Resumen ejecutivo
 
-SAFEZONE elabora mapas de riesgo delictivo y necesita datos públicos de delitos en la CDMX que estén actualizados y sean confiables. Para eso construiremos un proceso automático que todos los días descargue los datos abiertos de carpetas de investigación de la FGJ-CDMX (apoyados con datos de INEGI), los limpie, los guarde con su historial y calcule un nivel de riesgo por zona y mes.
-Los resultados quedarán disponibles en tablas consultables con SQL y en archivos listos para sus herramientas de visualización, siempre con su fecha, origen y limitaciones.
+SAFEZONE elabora mapas de riesgo delictivo y necesita datos públicos de delitos en la CDMX que estén actualizados y sean confiables. Para eso construiremos un proceso automático que cada lunes a las 9:00 am tome los archivos de los orígenes de datos (API de INEGI y API de PGR, en formato Excel), los guarde sin modificar, los transforme, calcule un nivel de riesgo por zona y mes y deje los datos listos para que los usuarios los consulten con Athena, siempre con su fecha, origen y limitaciones.
 Entregamos en 8 semanas (6 hitos), con capacitación y 30 días de soporte posterior.
 Los honorarios son de **$1,186,800 MXN + IVA** ($1,376,688 con IVA). El costo de AWS lo paga SAFEZONE directo en su cuenta: se estima en **~$3,000 MXN** durante el proyecto y en **~$600 MXN al mes** de operación. Ambas cifras quedan por debajo de los límites del RFP.
 
 ## 2. Alcance
 
 **Dentro de alcance:**
-- Ingesta automatizada de una fuente principal: los datos abiertos de carpetas de investigación de la FGJ-CDMX. En el Hito 0 se confirma que el conjunto siga publicado, su frecuencia real de actualización y su licencia de uso. Como apoyo se usan datos de INEGI (por ejemplo, población para normalizar y catálogos) y, si aportan algo, del SESNSP. Siempre se guarda una copia del dato original sin modificar.
+- Ingesta automatizada desde dos orígenes de datos: la API de INEGI (archivos Excel) y la API de PGR (archivos Excel). En el Hito 0 se confirma, para cada origen, que siga publicado, su frecuencia real de actualización, su licencia de uso, el formato de sus archivos y los campos disponibles. Siempre se guarda una copia del dato original sin modificar.
 - Limpieza, normalización y validación de fecha, categoría delictiva y ubicación, con reporte de calidad por lote.
 - Cálculo de riesgo por colonia o alcaldía y mes, con una fórmula simple, parámetros configurables y metodología documentada.
-- Histórico en S3 (Parquet) con registros procesados, indicadores y bitácora de ejecuciones, consultable con Athena.
-- Proceso batch programado (mínimo una vez al día), con alertas, registro de errores y reintentos sin duplicar registros.
-- Entrega de resultados mediante tablas en Athena y exportación de archivos estructurados (CSV y Parquet).
+- Histórico en el Data Lakehouse (S3) con registros procesados, indicadores y bitácora de ejecuciones, consultable con Athena.
+- Proceso batch programado con EventBridge (todos los lunes a las 9:00 am), con monitoreo en CloudWatch, registro de errores y reintentos sin duplicar registros.
+- Consulta de los datos por los usuarios mediante Athena, con un rol de IAM que solo permite consultar Athena.
 - Infraestructura en AWS definida como código (CloudFormation), en una cuenta propiedad del cliente.
 - Manual técnico y operativo, documentación de arquitectura, decisiones técnicas (ADR) y metodología.
 - Sesión de transferencia de conocimiento y capacitación remota.
@@ -36,9 +35,9 @@ Los honorarios son de **$1,186,800 MXN + IVA** ($1,376,688 con IVA). El costo de
 
 **Fuera de alcance:**
 - Otras ciudades o estados: el proyecto cubre solo la CDMX.
-- API REST con autenticación por cliente: el RFP (N5) acepta archivos estructurados, así que la API queda como mejora futura.
+- API REST con autenticación por cliente: los usuarios consultan los datos en Athena, así que la API queda como mejora futura.
 - Modelos de riesgo avanzados (cuadrícula hexagonal, ajustes estadísticos para zonas con pocos casos, tendencias con rango de incertidumbre): quedan como mejora futura sobre la fórmula base.
-- Aplicación móvil o página web para usuarios finales: el RFP lo excluye; entregamos datos listos para las herramientas de visualización que ya usa SAFEZONE.
+- Aplicación móvil o página web para usuarios finales: el RFP lo excluye; los usuarios consultan los datos directamente en Athena.
 - Cámaras, sensores, GPS o infraestructura física: el proyecto trabaja solo con datos ya publicados.
 - Bases policiales restringidas, expedientes judiciales o datos personales: el RFP lo prohíbe y no aportan a un indicador agregado por zona.
 - Identificación de personas o predicción de delitos individuales: el resultado es un nivel de riesgo agregado por zona y periodo, no una predicción sobre personas.
@@ -50,13 +49,13 @@ Los honorarios son de **$1,186,800 MXN + IVA** ($1,376,688 con IVA). El costo de
 
 | # | Entregable | Criterio de aceptación | Hito |
 |---|---|---|---|
-| E1 | Documento de arranque: fuente principal confirmada (publicación vigente, frecuencia real de actualización, licencia y campos), nivel geográfico, reglas de "registro válido" y "zona con información suficiente", ADRs iniciales | Documento firmado por el responsable del cliente | 0 |
-| E2 | Pipeline de ingesta con zona de datos originales (inmutable) | Al menos 90% de los registros válidos de cada lote se procesa con éxito en 3 lotes consecutivos (N1); el dato original de cada lote queda guardado y es recuperable | 1 |
-| E3 | Proceso de limpieza, normalización y validación + reporte de calidad por lote | Al menos 95% de los registros utilizables tiene fecha, categoría y ubicación normalizadas (N2); cada lote genera su reporte de calidad con registros rechazados y motivo | 2 |
-| E4 | Motor de cálculo de riesgo (etapa separada del pipeline) con parámetros configurables y metodología documentada | Se generan indicadores para al menos 85% de las zonas con información suficiente (N3); cambiar un peso o un umbral no requiere modificar código; metodología revisada por el cliente | 3 |
-| E5 | Histórico en S3 (Parquet) y tablas en Athena (registros, indicadores, bitácora de lotes) | El 100% de los lotes registra fuente, fecha de actualización, versión de metodología y estado (N6) | 4 |
-| E6 | Orquestación batch programada con reintentos | 3 días consecutivos de ejecución diaria automática; en una prueba de falla forzada el reintento termina sin registros duplicados (mismo conteo antes y después) (N4) | 4 |
-| E7 | Tablas de consulta en Athena y exportación de archivos (CSV y Parquet) | Consulta por zona y rango de fechas; los archivos se cargan sin ajustes en la herramienta de visualización indicada por el cliente; cada resultado incluye fecha de actualización y limitaciones (N5) | 4 |
+| E1 | Documento de arranque: orígenes confirmados (INEGI y PGR: publicación vigente, frecuencia real de actualización, licencia, formato y campos), nivel geográfico, reglas de "registro válido" y "zona con información suficiente", ADRs iniciales | Documento firmado por el responsable del cliente | 0 |
+| E2 | Pipeline de ingesta (EventBridge y Lambda) con capa bronze en S3 (datos originales, sin modificar) | Al menos 90% de los registros válidos de cada lote se procesa con éxito en 3 lotes consecutivos (N1); el dato original de cada lote queda guardado y es recuperable | 1 |
+| E3 | Segunda Lambda: transformación y validación de bronze hacia las Capas Silver + reporte de calidad por lote | Al menos 95% de los registros utilizables tiene fecha, categoría y ubicación normalizadas (N2); cada lote genera su reporte de calidad con registros rechazados y motivo | 2 |
+| E4 | Cálculo del nivel de riesgo (etapa separada del resto del procesamiento) con parámetros configurables y metodología documentada | Se generan indicadores para al menos 85% de las zonas con información suficiente (N3); cambiar un peso o un umbral no requiere modificar código; metodología revisada por el cliente | 3 |
+| E5 | Histórico en el Data Lakehouse (bronze y Capas Silver) y tablas en Athena (registros, indicadores, bitácora de lotes) | El 100% de los lotes registra fuente, fecha de actualización, versión de metodología y estado (N6) | 4 |
+| E6 | Orquestación batch con EventBridge (todos los lunes a las 9:00 am) y reintentos | 2 ejecuciones semanales consecutivas automáticas; en una prueba de falla forzada el reintento termina sin registros duplicados (mismo conteo antes y después) (N4) | 4 |
+| E7 | Consulta de los datos en Athena con un rol de IAM de solo consulta | Consulta por zona y rango de fechas desde Athena; el rol solo permite consultar Athena (se prueba que no da acceso a otros servicios); cada resultado incluye fecha de actualización y limitaciones (N5) | 4 |
 | E8 | Plan y reporte de pruebas (calidad, batch, rendimiento, recuperación, validación de resultados) | Todas las pruebas críticas pasan; reporte firmado por el cliente | 5 |
 | E9 | Manual técnico y operativo, documentación de arquitectura y ADRs | El equipo del cliente ejecuta, reintenta y agrega una fuente siguiendo solo el manual, sin apoyo del proveedor | 5 |
 
@@ -68,42 +67,79 @@ Los honorarios son de **$1,186,800 MXN + IVA** ($1,376,688 con IVA). El costo de
 | N1 Integración automatizada de fuentes públicas | E1, E2 | Cubierta |
 | N2 Limpieza y estandarización | E3 | Cubierta |
 | N3 Cálculo de riesgo por zona y fecha | E1, E4 | Cubierta (la definición de "información suficiente" se acuerda en E1) |
-| N4 Automatización por lotes | E6 | Cubierta |
+| N4 Automatización por lotes | E6 | Cubierta (con ejecución semanal; la frecuencia se confirma con el cliente en el Hito 0) |
 | N5 Consulta de resultados | E7 | Cubierta |
 | N6 Trazabilidad y confiabilidad | E2, E5 | Cubierta |
 
 ## 5. Enfoque técnico (alto nivel)
 
-```
-                       AWS (cuenta de SAFEZONE)
-                      ┌──────────────────────────────────────────────────────────────────────────┐
-                      │  EventBridge Scheduler (diario)                                          │
-                      │          │                                                               │
-                      │          ▼                                                               │
-Datos abiertos FGJ ──►│  Lambda: descarga ──► S3 /crudo        (original sin tocar, versionado)  │
-                      │          │                                                               │
-                      │          ▼                                                               │
-                      │  Lambda: limpieza y validación ──► S3 /limpio   (Parquet, por fecha)     │
-                      │          │                                                               │
-                      │          ▼                                                               │
-                      │  Athena (SQL): cálculo de riesgo ──► S3 /resultados + tablas Athena      │
-                      │                                                                          │
-                      │  SNS + CloudWatch Logs: alertas y bitácora de cada lote                  │
-                      │  Todo definido con CloudFormation                                        │
-                      └──────────────────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-                       Herramientas de visualización del cliente
+```mermaid
+flowchart TB
+    subgraph origenes["Orígenes de datos"]
+        INEGI["API INEGI<br/>(Excel)"]
+        PGR["API PGR<br/>(Excel, archivos)"]
+    end
+
+    subgraph aws["AWS"]
+        subgraph integracion["Integración"]
+            EB["EventBridge<br/>ejecución todos los lunes 9:00 am"]
+            L1["Lambda<br/>Python, Java, Rust"]
+            L2["Lambda"]
+        end
+
+        subgraph lake["Almacenamiento (Data Lakehouse)"]
+            B[("S3<br/>BRONZE")]
+            S1[("Capa Silver")]
+            S2[("Capa Silver<br/>datos consultables por los usuarios")]
+        end
+
+        ATH["Athena"]
+        IAM["IAM Role<br/>permiso para consultar únicamente Athena"]
+
+        subgraph mon["Monitoreo de todos los servicios"]
+            CW["CloudWatch"]
+        end
+
+        subgraph iac["IaC"]
+            CF["CloudFormation"]
+        end
+    end
+
+    USR["Usuarios<br/>consultan datos del Data Lake"]
+
+    INEGI --> L1
+    EB --> L1
+    L1 --> B
+    B --> L2
+    L2 --> S1
+    L2 --> S2
+    S2 --> ATH
+    USR --> IAM
+    IAM --> ATH
 ```
 
+Componentes del diagrama:
+- **Orígenes de datos:** API INEGI (archivos Excel) y API PGR (archivos Excel).
+- **EventBridge:** programa la ejecución todos los lunes a las 9:00 am y lanza la primera Lambda.
+- **Primera Lambda** (Python, Java, Rust): toma los archivos de los orígenes y los guarda en bronze.
+- **S3 bronze:** el dato original, sin modificar.
+- **Segunda Lambda:** lee bronze, transforma y valida los datos, y escribe en las dos Capas Silver.
+- **Capa Silver** y **Capa Silver de datos consultables:** las dos capas silver del Data Lakehouse; la segunda contiene los datos que pueden consultar los usuarios.
+- **Athena:** consulta la Capa Silver de datos consultables con SQL.
+- **IAM Role:** da a los usuarios permiso para consultar únicamente Athena.
+- **Usuarios:** consultan los datos del Data Lake a través de ese rol.
+- **CloudWatch:** monitoreo de todos los servicios.
+- **CloudFormation:** define la infraestructura como código.
+
 Decisiones clave:
-- **Cómputo sin servidores** (Lambda + EventBridge Scheduler): el proceso es diario y corto, así que no pagamos servidores encendidos todo el día y casi todo cabe en la capa gratuita de AWS. Si el volumen supera los límites de Lambda, se evalúa Glue cuidando el costo (se documenta en un ADR). Esto mantiene la operación muy por debajo de $25,500 MXN.
-- **Parquet en S3 + Athena**: consultas SQL sin servidor, con pago por consulta. No hay base de datos encendida que administrar ni credenciales que guardar, porque las fuentes son públicas.
-- **Dato original intocable**: cada descarga se guarda tal cual en S3 con versionado; si cambia la metodología, se puede recalcular todo el histórico.
-- **Reintentos sin duplicados**: cada lote tiene un identificador y cada registro una huella (hash); al reintentar, el lote se reescribe completo en su propia partición y se descartan las huellas repetidas, así que nunca se duplica. Esto también cubre las correcciones retroactivas que la fuente pueda hacer a datos históricos.
-- **Unidad geográfica**: colonia o alcaldía, unidas con un catálogo oficial. No se requiere base de datos geoespacial. El nivel exacto se decide en el Hito 0 según la población disponible para normalizar.
-- **Metodología de riesgo explicable**: conteo de delitos ponderado por tipo, dividido entre la población, por colonia o alcaldía y mes, convertido en nivel bajo, medio o alto con umbrales configurables. Resultado: nivel, puntaje y nota de limitaciones. El cálculo vive en una etapa separada para poder cambiarlo sin tocar la ingesta.
-- **Infraestructura como código** (CloudFormation, plantillas YAML) y todo el código en Git del cliente, para que no dependa de nosotros al terminar.
+- **Cómputo sin servidores** (Lambda + EventBridge): el proceso es periódico y corto, así que no pagamos servidores encendidos todo el tiempo. Si el volumen supera los límites de Lambda (15 minutos de ejecución y memoria máxima), se evalúa Glue. Un ADR (Lambda contra Glue) documenta el volumen por corrida, el tiempo estimado, el costo de ambas opciones y el umbral en que se cambiaría. Esto mantiene la operación muy por debajo de $25,500 MXN.
+- **Athena**: consultas SQL sin servidor, con pago por consulta. No hay base de datos encendida que administrar.
+- **Consulta con permiso mínimo**: los usuarios entran por un rol de IAM que solo permite consultar Athena.
+- **Dato original intocable**: cada descarga se guarda tal cual en bronze; si cambia la metodología, se puede recalcular todo el histórico.
+- **Reintentos sin duplicados**: cada lote tiene un identificador y cada registro una huella (hash); al reintentar, el lote se reescribe completo y se descartan las huellas repetidas, así que nunca se duplica.
+- **Unidad geográfica**: colonia o alcaldía, unidas con un catálogo oficial. No se requiere base de datos geoespacial. El nivel exacto se decide en el Hito 0 según los campos y la población disponibles en los orígenes, y la granularidad del cálculo (zona y periodo) se registra en un ADR antes de construir la transformación.
+- **Metodología de riesgo explicable**: conteo de delitos ponderado por tipo, dividido entre la población, por colonia o alcaldía y mes, convertido en nivel bajo, medio o alto con umbrales configurables. Resultado: nivel, puntaje y nota de limitaciones. El cálculo es una etapa separada para poder cambiarlo sin tocar la ingesta.
+- **Infraestructura como código** (CloudFormation, plantillas YAML) y todo el código en Git del cliente, para que no dependa de nosotros al terminar. Cada Lambda entra a la plantilla el mismo día que se escribe.
 
 ## 6. Plan por hitos
 
@@ -111,39 +147,40 @@ Fechas calculadas suponiendo firma del contrato el lunes 9 de noviembre de 2026.
 
 | Hito | Qué se entrega | Evidencia | Fecha | Horas |
 |---|---|---|---|---|
-| 0 Arranque | E1: fuente confirmada, nivel geográfico, reglas de validación, cuenta AWS lista, ADRs iniciales | Documento de arranque firmado | Semana 1 — 13 nov 2026 | 120 |
-| 1 Ingesta y datos originales | E2: descarga automática de la fuente y almacenamiento crudo | Demo de 3 lotes con métricas de procesamiento ≥ 90% | Semana 3 — 27 nov 2026 | 280 |
-| 2 Limpieza y calidad | E3: normalización, validación y reportes de calidad | Reporte de calidad con ≥ 95% de registros normalizados | Semana 4 — 4 dic 2026 | 280 |
-| 3 Motor de riesgo | E4: cálculo por zona y periodo, parámetros configurables, metodología | Indicadores en ≥ 85% de zonas con información suficiente; revisión metodológica con el cliente | Semana 6 — 18 dic 2026 | 300 |
-| 4 Batch, histórico y consulta | E5, E6, E7: orquestación diaria, reintentos, bitácora, tablas de consulta y archivos | Bitácora de 3 días de ejecución, prueba de falla y reintento, demo de consulta en Athena y archivos | Semana 7 — 23 dic 2026 | 260 |
+| 0 Arranque | E1: orígenes confirmados, nivel geográfico, reglas de validación, cuenta AWS lista, ADRs iniciales | Documento de arranque firmado | Semana 1 — 13 nov 2026 | 120 |
+| 1 Ingesta y datos originales | E2: ingesta desde los orígenes (INEGI y PGR) con EventBridge y Lambda, y almacenamiento en bronze | Demo de 3 lotes con métricas de procesamiento ≥ 90% | Semana 3 — 27 nov 2026 | 280 |
+| 2 Transformación y calidad | E3: segunda Lambda, transformación, validación, Capas Silver y reportes de calidad | Reporte de calidad con ≥ 95% de registros normalizados | Semana 4 — 4 dic 2026 | 280 |
+| 3 Cálculo de riesgo | E4: cálculo por zona y periodo, parámetros configurables, metodología | Indicadores en ≥ 85% de zonas con información suficiente; revisión metodológica con el cliente | Semana 6 — 18 dic 2026 | 300 |
+| 4 Batch, histórico y consulta | E5, E6, E7: histórico, ejecución semanal programada, reintentos, bitácora, consulta en Athena con rol de solo consulta | Bitácora de 2 ejecuciones semanales (14 y 21 de diciembre), prueba de falla y reintento, demo de consulta en Athena | Semana 7 — 23 dic 2026 | 260 |
 | 5 Pruebas, documentación y producción | E8, E9: pruebas finales, manuales, capacitación y salida a producción | Reporte de pruebas firmado, sesión grabada, sistema en producción | Semana 8 — 31 dic 2026 | 160 |
 | **Total** | | | | **1,400** |
 
 Revisión con el cliente cada semana y demo al cierre de cada hito. El soporte de 30 días inicia al aceptar el Hito 5.
 
-**Calendario de E6:** la programación diaria se activa a más tardar el viernes 18 de diciembre, al cierre del Hito 3. Así, del 19 al 22 de diciembre se acumulan los 3 días consecutivos de bitácora que se muestran en la demo del Hito 4 (23 de diciembre).
+**Calendario de E6:** la programación semanal (lunes 9:00 am) se activa a más tardar el viernes 11 de diciembre. Así, las ejecuciones de los lunes 14 y 21 de diciembre quedan en la bitácora que se muestra en la demo del Hito 4 (23 de diciembre).
 
 ## 7. Equipo y responsabilidades
 
 | Rol | Nombre | Responsabilidad principal | Reporta a |
 |---|---|---|---|
 | Líder de proyecto y arquitecto de datos | Amir Cuevas Quintana | Plan, arquitectura, ADRs, relación con el cliente, control de cambios | Responsable del proyecto en SAFEZONE |
-| Ingeniero de datos (ingesta y orquestación) | Uriel Ivan Guerrero Lopez | Conectores a la fuente, almacenamiento crudo, EventBridge Scheduler y Lambda, reintentos y bitácora de lotes | Líder de proyecto |
+| Ingeniero de datos (ingesta y orquestación) | Uriel Ivan Guerrero Lopez | Ingesta desde los orígenes (INEGI y PGR), primera Lambda, capa bronze, EventBridge, reintentos y bitácora de lotes | Líder de proyecto |
 | Ingeniero de datos (calidad y modelo de datos) | Axel Alejandro Quintos Delgadillo | Reglas de limpieza y validación, modelo de datos (tablas Athena), reportes de calidad | Líder de proyecto |
 | Científico de datos | Aaron Rodrigo Leon Pérez | Unidad geográfica, metodología de riesgo, validación de resultados y limitaciones | Líder de proyecto |
-| DevOps, pruebas y documentación | Eduardo Antonio Estrada Luna | CloudFormation, CI/CD, monitoreo, plan de pruebas, manuales y capacitación | Líder de proyecto |
+| DevOps, pruebas y documentación | Eduardo Antonio Estrada Luna | CloudFormation, monitoreo con CloudWatch, rol de IAM de solo consulta, plan de pruebas, manuales y capacitación | Líder de proyecto |
 
 ## 8. Supuestos y dependencias del cliente
 
 **Supuestos:**
-- Las fuentes públicas (datos abiertos de la FGJ-CDMX como fuente principal; INEGI como apoyo) siguen disponibles y permiten su uso para este fin.
+- Los orígenes de datos (API de INEGI y API de PGR) siguen disponibles y permiten su uso para este fin.
 - SAFEZONE aporta o autoriza una cuenta de AWS a su nombre; los costos de nube se facturan directo al cliente.
 - Los precios son en MXN y antes de IVA.
 - Las sesiones de trabajo y capacitación son remotas.
 - Tipo de cambio de referencia para estimar AWS: $19 MXN por dólar.
 
 **Datos que no cuadran (y cómo los resolvemos):**
-- **Ejecución diaria vs. frecuencia de la fuente:** la frecuencia real de actualización de los datos de la FGJ-CDMX se confirma en el Hito 0, y las fuentes de apoyo como el SESNSP publican de forma mensual. El batch correrá todos los días como pide N4, pero solo recalculará cuando detecte datos nuevos; el riesgo se calcula por mes y se actualiza para el mes en curso cuando llegan datos más recientes.
+- **Frecuencia de ejecución:** N4 se planteó como ejecución automática por lotes, y la arquitectura programa una ejecución semanal (lunes 9:00 am). En el Hito 0 se confirma con el cliente que la frecuencia semanal cumple N4 y se verifica la frecuencia real de actualización de INEGI y PGR. Si el cliente necesita una frecuencia mayor, solo cambia la programación de EventBridge.
+- **Dos Capas Silver:** el diagrama de arquitectura muestra dos Capas Silver (una de ellas con los datos que consultan los usuarios). En el Hito 0 se documenta qué contiene cada una.
 - **"Predictivo" vs. "sin predicción determinista":** entregamos un nivel de riesgo calculado con datos históricos por zona y mes, no predicciones de delitos concretos. La tendencia con rango de incertidumbre queda como mejora futura.
 - **Términos sin definir en N1 y N3:** "registro válido" y "zona con información suficiente" se definen y firman en el Hito 0; sin eso no se pueden medir los porcentajes.
 - **Nivel geográfico abierto:** colonia o alcaldía depende de la población disponible para normalizar; se decide en el Hito 0.
@@ -154,7 +191,7 @@ Revisión con el cliente cada semana y demo al cierre de cada hito. El soporte d
 - Un responsable del proyecto con autoridad para aprobar hitos y cambios.
 - Respuesta a validaciones en un máximo de 3 días hábiles.
 - Acceso a la cuenta de AWS en la semana 1.
-- Nombre y formato de la herramienta de visualización destino antes del Hito 3.
+- Lista de los usuarios que consultarán los datos en Athena antes del Hito 4, para asignarles el rol de IAM de solo consulta.
 - Aprobación de la metodología de riesgo en el Hito 3.
 - Disponibilidad del equipo de ingeniería y analítica para la capacitación en la semana 8.
 
@@ -162,7 +199,7 @@ Revisión con el cliente cada semana y demo al cierre de cada hito. El soporte d
 
 | Riesgo | Probabilidad | Impacto | Qué haremos |
 |---|---|---|---|
-| Cambia el formato o la URL de la fuente pública | Media | Alto | Validación de estructura antes de procesar; el lote falla de forma controlada, alerta al equipo y no contamina el histórico; conector separado por fuente |
+| Cambia el formato, la estructura de columnas de los archivos Excel o la URL de un origen | Media | Alto | Validación de estructura antes de procesar; el lote falla de forma controlada, alerta al equipo y no contamina el histórico; conector separado por fuente |
 | La fuente deja de publicarse o se retrasa | Media | Medio | Indicadores muestran la fecha del último dato; se marca la zona como "desactualizada" en lugar de inventar valores |
 | Calidad baja de datos (ubicaciones vacías o colonias mal escritas) | Alta | Alto | Catálogos oficiales de alcaldías y colonias para normalizar, reglas de corrección documentadas y reporte de registros rechazados con su motivo |
 | Sesgo por zonas con más denuncias o más cobertura | Alta | Alto | Regla de "información suficiente": las zonas con pocos casos se marcan sin calificar en lugar de ajustarse; nota de limitaciones en cada indicador; revisión de resultados con analistas del cliente |
@@ -193,11 +230,11 @@ Revisión con el cliente cada semana y demo al cierre de cada hito. El soporte d
 
 | Servicio AWS | MXN/mes |
 |---|---|
-| S3 (datos originales, limpios y resultados, con versionado) | 50 |
-| Lambda (descarga y limpieza diarias) | 50 |
-| Athena (consultas SQL y cálculo de riesgo) | 150 |
-| EventBridge Scheduler y catálogo de tablas | 0 (capa gratuita) |
-| CloudWatch Logs y SNS (bitácoras y alertas) | 150 |
+| S3 (bronze y Capas Silver) | 50 |
+| Lambda (ingesta y transformación) | 50 |
+| Athena (consultas SQL de los usuarios) | 150 |
+| EventBridge, IAM y CloudFormation | 0 |
+| CloudWatch (monitoreo y bitácoras) | 150 |
 | Transferencia de datos y otros | 50 |
 | Margen de seguridad (30%) | 135 |
 | **Total estimado** | **~600** |
@@ -225,8 +262,8 @@ Equivale a cerca del 2% del límite de $25,500 MXN; la cifra se valida con la ca
 |---|---|---|
 | 0 Arranque | 10% | 118,680 |
 | 1 Ingesta y datos originales | 15% | 178,020 |
-| 2 Limpieza y calidad | 15% | 178,020 |
-| 3 Motor de riesgo | 20% | 237,360 |
+| 2 Transformación y calidad | 15% | 178,020 |
+| 3 Cálculo de riesgo | 20% | 237,360 |
 | 4 Batch, histórico y consulta | 20% | 237,360 |
 | 5 Pruebas, documentación y producción | 20% | 237,360 |
 | **Total honorarios** | **100%** | **1,186,800** |
