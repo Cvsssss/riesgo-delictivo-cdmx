@@ -12,25 +12,23 @@ El proceso corre una vez por semana y procesa archivos Excel de INEGI y PGR.
 
 ## Mediciones
 
-Llenar con una corrida real o una muestra representativa:
-
 | Dato | Valor |
 |---|---|
 | Tamaño de los archivos por corrida (MB) | [medir] |
 | Filas por corrida | [medir] |
 | Crecimiento esperado (por semana o por mes) | [estimar] |
-| Tiempo de ejecución en Lambda (campo `Duration` en CloudWatch Logs) | [medir] |
-| Memoria usada (campo `Max Memory Used` en CloudWatch Logs) | [medir] |
-| Ejecuciones por mes | [completar: ~4 o 5 con ejecución semanal] |
+| Tiempo de ejecución en Lambda | [medir] |
+| Memoria usada | [medir] |
+| Ejecuciones por mes | 4 o 5 (una cada lunes) |
 
 ## Límites de Lambda a considerar
 
 | Límite | Valor |
 |---|---|
 | Tiempo máximo por ejecución | 15 minutos |
-| Memoria máxima | [verificar en la documentación vigente de AWS] |
-| Almacenamiento temporal | [verificar en la documentación vigente de AWS] |
-| Tamaño del paquete de despliegue | [verificar en la documentación vigente de AWS] |
+| Memoria máxima | 128 MB a 10,240 MB |
+| Almacenamiento temporal | Entre 512 MB y 10,240 MB |
+| Tamaño del paquete de despliegue | Paquete .zip: 50 MB comprimido y 250 MB descomprimido. Imagen de contenedor: hasta 10 GB |
 
 ## Opciones
 
@@ -38,11 +36,10 @@ Llenar con una corrida real o una muestra representativa:
 |---|---|---|
 | Cómo corre | Función bajo demanda | Trabajo administrado (puede usar Spark) |
 | Tiempo de ejecución estimado | [de la tabla de mediciones] | [estimar] |
-| Costo por corrida | [calcular con la calculadora de AWS] | [calcular con la calculadora de AWS] |
-| Costo mensual | [calcular] | [calcular] |
-| Complejidad de desarrollo y despliegue | [completar] | [completar] |
-| Cabe en los límites con el volumen actual | [sí/no] | [sí/no] |
-
+| Costo por corrida | $0 (dentro del free tier mensual de Lambda) | ≈ $0.07 (Spark, 2 DPU, 5 min, estimado) |
+| Costo mensual | $0 | ≈ $0.37 (5 corridas, estimado sin medir) |
+| Complejidad de desarrollo y despliegue | Baja: una función dentro de la plantilla de CloudFormation, empaquetar la librería para leer Excel dentro de los límites del paquete | hay que definir el trabajo en la plantilla y probar el arranque |
+| Cabe en los límites con el volumen actual | [pendiente de medir] | [verificar timeout configurado del trabajo] |
 ## Decisión
 
 ## Umbral de cambio
