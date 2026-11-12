@@ -65,47 +65,11 @@ Antes de depender de ellas se confirma, para cada origen, que siga publicado, su
 └── README.md
 ```
 
-## Cómo desplegar
-
-> Estos pasos aplican cuando exista `infra/template.yaml`. Todo se crea desde la plantilla; nada se crea a clics.
-
-**Requisitos:** una cuenta de AWS y acceso a la consola.
-
-1. En **AWS Budgets**, crea un presupuesto de 1 USD con alerta por correo, antes de crear cualquier recurso.
-2. Entra a **CloudFormation** → **Create stack** → **With new resources** y sube `infra/template.yaml`.
-3. Completa los parámetros que pida la plantilla y crea el stack.
-4. Espera a que el estado sea `CREATE_COMPLETE`.
-5. En **Lambda**, abre la primera función y ejecútala con una prueba manual. Verifica que aparezcan archivos en bronze y, después de la segunda Lambda, datos en las Capas Silver.
-6. Ejecútala una segunda vez y confirma que el conteo de registros no cambia (no hay duplicados).
-7. Con un usuario que tenga el **IAM Role** de consulta, entra a **Athena** y consulta la Capa Silver de datos consultables.
-8. En **EventBridge**, confirma que la regla esté programada para los lunes a las 9:00 am.
-
-Para borrar todo: vacía los buckets de S3 y elimina el stack desde CloudFormation.
-
-## Resultados
-
-_Pendiente: se agregará cuando el pipeline corra de punta a punta._ Incluirá una captura de una consulta en Athena sobre la Capa Silver de datos consultables y la bitácora de ejecuciones en CloudWatch.
-
-Cada indicador consultable llevará nivel de riesgo, puntaje, fecha de actualización, versión de la metodología y nota de limitaciones.
-
 ## Limitaciones
 
 - Los registros oficiales no incluyen los delitos que no se denuncian (cifra negra).
 - Las zonas con más denuncias o más cobertura pueden parecer más riesgosas; las zonas con pocos casos se marcan como "sin información suficiente" en lugar de calificarse.
 - El resultado es un nivel de riesgo histórico agregado por zona y periodo. **No** es una predicción de delitos ni identifica personas.
-
-## Estado del proyecto
-
-- [x] RFP y SOW
-- [x] Diagrama de arquitectura
-- [ ] ADR: Lambda contra Glue
-- [ ] ADR: granularidad del cálculo
-- [ ] Primera Lambda (ingesta hacia bronze), sin duplicados al reintentar
-- [ ] Plantilla de CloudFormation con EventBridge
-- [ ] Segunda Lambda (transformación hacia las Capas Silver)
-- [ ] IAM Role de solo consulta en Athena
-- [ ] Pruebas
-- [ ] Resultados y capturas en este README
 
 ## Documentación
 
