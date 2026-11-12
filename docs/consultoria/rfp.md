@@ -1,5 +1,3 @@
-EQUIPO 5
-
 RFP: Sistema de Mapeo y Cálculo Predictivo de Riesgo Delictivo por Lotes (Batch Processing)
 
 **Cliente:** SAFEZONE MÉXICO
