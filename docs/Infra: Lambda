@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: riesgo-delictivo-cdmx - Primera Lambda (ingesta) que escribe en la capa bronze..
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: riesgo-delictivo-cdmx
+    Description: 
+    AllowedPattern: "^[a-z0-9-]{3,30}$"
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Resources:
+  IngestaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-ingesta-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: escribir-en-bronze
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  - !Sub
+                    - "${BucketArn}/inegi/*"
+                    - BucketArn: !ImportValue
+                        Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-arn"
+                  - !Sub
+                    - "${BucketArn}/pgr/*"
+                    - BucketArn: !ImportValue
+                        Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-arn"
+
+  IngestaFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-${Environment}-ingesta"
+      RetentionInDays: 14
+
+  IngestaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: IngestaFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-ingesta"
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt IngestaFunctionRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      Environment:
+        Variables:
+          BRONZE_BUCKET: !ImportValue
+            Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-name"
+      Code:
+        ZipFile: |
+          import json
+          import os
+          from datetime import datetime, timezone
+
+          import boto3
+
+          s3 = boto3.client("s3")
+          BUCKET = os.environ["BRONZE_BUCKET"]
+
+
+          def handler(event, context):
+              ahora = datetime.now(timezone.utc)
+              key = f"inegi/prueba/{ahora:%Y-%m-%d}.json"
+              contenido = {
+                  "ingestado_en": ahora.isoformat(),
+                  "origen": "prueba",
+                  "evento": event,
+              }
+              s3.put_object(
+                  Bucket=BUCKET,
+                  Key=key,
+                  Body=json.dumps(contenido).encode("utf-8"),
+                  ContentType="application/json",
+              )
+              return {"bucket": BUCKET, "key": key}
+      Tags:
+        - Key: project
+          Value: !Ref ProjectName
+        - Key: environment
+          Value: !Ref Environment
+
+Outputs:
+  IngestaFunctionName:
+    Value: !Ref IngestaFunction
+  IngestaFunctionArn:
+    Value: !GetAtt IngestaFunction.Arn
