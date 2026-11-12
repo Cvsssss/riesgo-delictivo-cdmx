@@ -20,22 +20,19 @@ Llenar al revisar los archivos Excel:
 
 | Campo | INEGI | PGR |
 |---|---|---|
-| Fecha del delito | [completar: sí/no] | [completar: sí/no] |
-| Hora del delito | [completar: sí/no] | [completar: sí/no] |
-| Alcaldía | [completar: sí/no] | [completar: sí/no] |
-| Colonia | [completar: sí/no] | [completar: sí/no] |
+| Fecha del delito | Si | Si |
+| Hora del delito | No | Si |
+| Alcaldía | Si | Si |
+| Colonia | Si | Si |
 
 ## Opciones
 
 | Opción | Zona | Periodo | Las fuentes traen los campos | Casos por celda (zona y periodo)
 |---|---|---|---|---|---|
-| A | Alcaldía | Mes | [completar] | [medir: promedio y mínimo] 
-| B | Colonia | Mes | [completar] | [medir: promedio y mínimo] 
-| C | Colonia | Día | [completar] | [medir: promedio y mínimo] 
-| D | Colonia | Hora | [completar] | [medir: promedio y mínimo] 
-
-Para medir "casos por celda": con una muestra real, cuenta los delitos que caen en cada combinación de zona y periodo. 
-Si la mayoría de celdas tiene muy pocos casos, el nivel de riesgo sería informacion inflada, el SOW ya prevé marcar esas zonas como "sin información suficiente" en lugar de calificarlas.
+| A | Alcaldía | Mes | Si | 1,000
+| B | Colonia | Mes | Si | 9
+| C | Colonia | Día | Si | 0.3
+| D | Colonia | Hora | No | 0.01
 
 ## Decisión
 
