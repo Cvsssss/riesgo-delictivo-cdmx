@@ -1,0 +1,39 @@
+{
+  "formatVersion": 1,
+  "title": "New diagram",
+  "routing": "elbow",
+  "groups": [
+    { "id": "grupo-1", "label": "Origenes de Datos", "color": "rosa" },
+    { "id": "grupo-2", "label": "AWS", "icon": "aws/group-cloud", "color": "coral", "region": "MX" },
+    { "id": "grupo-3", "label": "Integración", "color": "melocoton", "parent": "grupo-2" },
+    { "id": "grupo-4", "label": "Almacenamiento (Data Lakehouse)", "color": "limon", "parent": "grupo-2" },
+    { "id": "grupo-5", "label": "Monitoreo de todos los servicios", "color": "menta", "parent": "grupo-2" },
+    { "id": "grupo-6", "label": "IaC", "color": "cielo", "parent": "grupo-2" }
+  ],
+  "nodes": [
+    { "id": "external-1", "label": "API INEGI (EXCELES)", "type": "external", "group": "grupo-1", "x": -536, "y": -88 },
+    { "id": "lambda-1", "label": "Lambda", "type": "function", "icon": "aws/lambda", "sub": "Python, Java, Rust", "group": "grupo-3", "x": -200, "y": -88 },
+    { "id": "lambda-2", "label": "Lambda", "type": "function", "icon": "aws/lambda", "group": "grupo-3", "x": 136, "y": -88 },
+    { "id": "s3-1", "label": "S3", "type": "storage", "icon": "aws/s3", "group": "grupo-4", "x": -192, "y": 104, "layer": "bronze" },
+    { "id": "s3-2", "label": "Capa Silver", "type": "storage", "icon": "aws/s3", "group": "grupo-4", "x": 144, "y": 96, "layer": "silver" },
+    { "id": "athena-1", "label": "Athena", "type": "analytics", "icon": "aws/athena", "group": "grupo-2", "x": 144, "y": 376 },
+    { "id": "cloudwatch-1", "label": "CloudWatch", "type": "monitor", "icon": "aws/cloudwatch", "group": "grupo-5", "x": -200, "y": 560 },
+    { "id": "eventbridge-1", "label": "EventBridge", "type": "events", "icon": "aws/eventbridge", "sub": "Ejecución todos los Lunes 09:00 am", "group": "grupo-3", "x": -200, "y": -224 },
+    { "id": "user-1", "label": "Usuarios", "type": "user", "sub": "Consultan datos del Data Lake", "x": 752, "y": 376 },
+    { "id": "external-2", "label": "API PGR (EXCELES ARCHIVOS)", "type": "external", "group": "grupo-1", "x": -536, "y": 16 },
+    { "id": "storage-1", "label": "Capa Silver", "type": "storage", "icon": "aws/s3", "sub": "Los datos que pueden ser consultados por los usuarios", "group": "grupo-4", "x": 144, "y": 192, "layer": "silver" },
+    { "id": "iam-1", "label": "IAM Role", "type": "auth", "icon": "aws/iam", "sub": "Permiso para consultar únicamente Athena", "group": "grupo-2", "x": 440, "y": 376 },
+    { "id": "cloudformation-1", "label": "CloudFormation", "type": "cicd", "icon": "aws/cloudformation", "group": "grupo-6", "x": 416, "y": 560 }
+  ],
+  "edges": [
+    { "id": "e1", "from": "external-1", "to": "lambda-1" },
+    { "id": "e2", "from": "lambda-1", "to": "s3-1" },
+    { "id": "e3", "from": "s3-1", "to": "lambda-2" },
+    { "id": "e4", "from": "lambda-2", "to": "s3-2" },
+    { "id": "e6", "from": "eventbridge-1", "to": "lambda-1" },
+    { "id": "e8", "from": "storage-1", "to": "athena-1" },
+    { "id": "e5", "from": "lambda-2", "to": "storage-1" },
+    { "id": "e9", "from": "user-1", "to": "iam-1" },
+    { "id": "e10", "from": "iam-1", "to": "athena-1" }
+  ]
+}
