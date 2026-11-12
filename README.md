@@ -38,10 +38,10 @@ El diagrama muestra el flujo completo. Los componentes, en el orden en que viaja
 
 Decisiones de diseño:
 
-- **Sin duplicados al reintentar.** Cada lote tiene un identificador y cada registro un hash; un reintento reescribe el lote completo y descarta las huellas repetidas.
-- **Cálculo explicable.** Conteo de delitos ponderado por tipo, dividido entre la población, por colonia o alcaldía y mes, convertido en nivel bajo, medio o alto con umbrales configurables. Es una etapa separada para cambiarlo sin tocar la ingesta.
-- **Lambda en lugar de Glue.** El volumen por corrida es pequeño. El ADR correspondiente documenta los números y el umbral en que se cambiaría a Glue.
-- **Permiso mínimo para consultar.** Los usuarios solo pueden consultar Athena; no tienen acceso a otros servicios.
+- Cada lote tiene un identificador y cada registro un hash; un reintento reescribe el lote completo y descarta las huellas repetidas.
+- Conteo de delitos ponderado por tipo, dividido entre la población, por colonia o alcaldía y mes, convertido en nivel bajo, medio o alto con umbrales configurables. Es una etapa separada para cambiarlo sin tocar la ingesta.
+- El volumen por corrida es pequeño. El ADR correspondiente documenta los números y el umbral en que se cambiaría a Glue.
+- Los usuarios solo pueden consultar Athena; no tienen acceso a otros servicios.
 
 ## Fuentes de datos
 
