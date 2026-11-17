@@ -1,5 +1,7 @@
 # SOW: Pipeline batch de cálculo de riesgo delictivo en la CDMX
 
+> **Nota del equipo (17/11/2026):** este SOW describe lo que queremos entregar en el proyecto completo. Para nuestra primera versión empezamos con datos CSV de la FGJ CDMX, agrupados por alcaldía y mes, y tres Lambdas para bronze, silver y gold. Dejamos la ejecución automática apagada mientras hacemos pruebas. Todavía nos falta integrar las otras fuentes, calcular tasas por población y cumplir todas las pruebas de aceptación del SOW. Lo que tenemos implementado hasta ahora se explica en el `README.md` y en `infra/template.yaml`.
+
 **Consultora:** Data Bloom
 **Cliente:** SAFEZONE MÉXICO (Área de Inteligencia de Datos)
 **Respuesta al RFP del:** 6 de octubre de 2026
