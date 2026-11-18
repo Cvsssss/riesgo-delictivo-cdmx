@@ -1,0 +1,245 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: MVP de riesgo delictivo CDMX - ingesta, bronze, silver, gold y Athena.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: riesgo-delictivo-cdmx
+    AllowedPattern: "^[a-z0-9-]{3,30}$"
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  SourceUrl:
+    Type: String
+    Default: ""
+    Description: URL HTTPS de un CSV oficial verificado; vacio permite comenzar con carga manual.
+  ScheduleState:
+    Type: String
+    Default: DISABLED
+    AllowedValues: [ENABLED, DISABLED]
+    Description: Se habilita al validar la URL y el volumen de la fuente.
+  MaxSourceBytes:
+    Type: Number
+    Default: 100000000
+    MinValue: 1024
+    MaxValue: 500000000
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures: [x86_64]
+
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-data-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expirar-versiones-sustituidas
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+
+  IngestaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-ingesta"
+      CodeUri: ../src/ingesta/
+      Handler: handler.lambda_handler
+      MemorySize: 512
+      Timeout: 300
+      EphemeralStorage:
+        Size: 1024
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+          SOURCE_URL: !Ref SourceUrl
+          MAX_SOURCE_BYTES: !Ref MaxSourceBytes
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: [s3:GetObject, s3:PutObject]
+              Resource: !Sub "${DataBucket.Arn}/bronze/*"
+
+  SilverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-silver"
+      CodeUri: ../src/silver/
+      Handler: handler.lambda_handler
+      MemorySize: 512
+      Timeout: 300
+      EphemeralStorage:
+        Size: 1024
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub "${DataBucket.Arn}/bronze/*"
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub "${DataBucket.Arn}/silver/*"
+      Events:
+        ArchivoEnBronze:
+          Type: S3
+          Properties:
+            Bucket: !Ref DataBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: bronze/
+                  - Name: suffix
+                    Value: .csv
+
+  GoldFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-gold"
+      CodeUri: ../src/gold/
+      Handler: handler.lambda_handler
+      MemorySize: 256
+      Timeout: 120
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub "${DataBucket.Arn}/silver/datos/*"
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub "${DataBucket.Arn}/gold/indicadores/*"
+      Events:
+        ArchivoEnSilver:
+          Type: S3
+          Properties:
+            Bucket: !Ref DataBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: silver/datos/
+                  - Name: suffix
+                    Value: .csv
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: invocar-ingesta
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt IngestaFunction.Arn
+
+  IngestaSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-ingesta-diaria"
+      ScheduleExpression: "cron(0 9 * * ? *)"
+      ScheduleExpressionTimezone: America/Mexico_City
+      State: !Ref ScheduleState
+      FlexibleTimeWindow:
+        Mode: OFF
+      Target:
+        Arn: !GetAtt IngestaFunction.Arn
+        RoleArn: !GetAtt SchedulerRole.Arn
+        RetryPolicy:
+          MaximumRetryAttempts: 2
+          MaximumEventAgeInSeconds: 3600
+
+  DatosDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Sub "riesgo_cdmx_${Environment}"
+        Description: Indicadores historicos delictivos de CDMX.
+
+  IndicadoresTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref DatosDatabase
+      TableInput:
+        Name: indicadores
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          skip.header.line.count: "1"
+          classification: csv
+          EXTERNAL: "TRUE"
+        StorageDescriptor:
+          Location: !Sub "s3://${DataBucket}/gold/indicadores/"
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.serde2.OpenCSVSerde
+            Parameters:
+              separatorChar: ","
+              quoteChar: '"'
+          Columns:
+            - {Name: alcaldia, Type: string}
+            - {Name: mes, Type: string}
+            - {Name: total_delitos, Type: int}
+            - {Name: puntaje_ponderado, Type: int}
+            - {Name: nivel_incidencia, Type: string}
+            - {Name: version_metodologia, Type: string}
+            - {Name: fecha_proceso, Type: string}
+            - {Name: limitaciones, Type: string}
+
+  AthenaWorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-consultas"
+      Description: Grupo de consultas sobre gold con salida privada en S3.
+      WorkGroupConfiguration:
+        EnforceWorkGroupConfiguration: true
+        PublishCloudWatchMetricsEnabled: true
+        BytesScannedCutoffPerQuery: 1073741824
+        ResultConfiguration:
+          OutputLocation: !Sub "s3://${DataBucket}/athena-resultados/"
+
+Outputs:
+  DataBucketName:
+    Value: !Ref DataBucket
+  IngestaFunctionName:
+    Value: !Ref IngestaFunction
+  AthenaDatabase:
+    Value: !Ref DatosDatabase
+  AthenaWorkGroupName:
+    Value: !Ref AthenaWorkGroup
