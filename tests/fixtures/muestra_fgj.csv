@@ -1,0 +1,13 @@
+fecha_hecho,alcaldia_hecho,categoria_delito
+2026-10-01,Coyoacán,ROBO DE VEHICULO
+2026-10-03,Coyoacán,ROBO A NEGOCIO
+2026-10-04,Coyoacán,LESIONES
+2026-10-05,Coyoacán,ROBO A TRANSEUNTE
+2026-10-02,Benito Juárez,LESIONES
+2026-10-06,Benito Juárez,ROBO
+2026-10-07,Iztapalapa,DELITO NO ESPECIFICADO
+2026-11-02,Iztapalapa,ROBO
+2026-11-03,Coyoacán,LESIONES
+2026-11-05,Benito Juárez,ROBO
+fecha_incorrecta,Coyoacán,ROBO
+2026-11-06,Alcaldía inexistente,ROBO
