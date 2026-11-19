@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: riesgo-delictivo-cdmx - Bucket de las Capas Silver y segunda Lambda (transformacion de bronze a silver) con rol de minimo privilegio.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: riesgo-delictivo-cdmx
+    Description: Debe ser el mismo valor usado en las plantillas 01 a 04
+    AllowedPattern: "^[a-z0-9-]{3,30}$"
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  CodigoKey:
+    Type: String
+    Default: codigo/transformacion.zip
+    Description: Ruta dentro del bucket bronze donde se subio transformacion.zip
+  MinRegistros:
+    Type: Number
+    Default: 10
+    Description: Minimo de registros historicos para calificar una celda y periodo; con menos se marca "sin informacion suficiente"
+
+Resources:
+  SilverBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-silver-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: limpiar-versiones-antiguas
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      Tags:
+        - Key: project
+          Value: !Ref ProjectName
+        - Key: environment
+          Value: !Ref Environment
+        - Key: layer
+          Value: silver
+
+  TransformacionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-transformacion-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: leer-bronze-escribir-silver
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub
+                    - "${BucketArn}/fgj/*"
+                    - BucketArn: !ImportValue
+                        Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-arn"
+                  - !Sub
+                    - "${BucketArn}/inegi/*"
+                    - BucketArn: !ImportValue
+                        Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-arn"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource:
+                  - !Sub "${SilverBucket.Arn}/limpio/*"
+                  - !Sub "${SilverBucket.Arn}/consultable/*"
+
+  TransformacionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-${Environment}-transformacion"
+      RetentionInDays: 14
+
+  TransformacionFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: TransformacionLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-transformacion"
+      Runtime: python3.13
+      Handler: transformacion.handler
+      Role: !GetAtt TransformacionRole.Arn
+      Timeout: 900
+      MemorySize: 1024
+      EphemeralStorage:
+        Size: 1024
+      Environment:
+        Variables:
+          BRONZE_BUCKET: !ImportValue
+            Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-name"
+          SILVER_BUCKET: !Ref SilverBucket
+          MIN_REGISTROS: !Ref MinRegistros
+          METODOLOGIA_VERSION: v1-2026-11
+      Code:
+        S3Bucket: !ImportValue
+          Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-name"
+        S3Key: !Ref CodigoKey
+      Tags:
+        - Key: project
+          Value: !Ref ProjectName
+        - Key: environment
+          Value: !Ref Environment
+
+Outputs:
+  SilverBucketName:
+    Value: !Ref SilverBucket
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-silver-bucket-name"
+  SilverBucketArn:
+    Value: !GetAtt SilverBucket.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-silver-bucket-arn"
+  TransformacionFunctionName:
+    Value: !Ref TransformacionFunction

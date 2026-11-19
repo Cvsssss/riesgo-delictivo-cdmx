@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: riesgo-delictivo-cdmx - Athena para explorar el CSV de la FGJ en bronze, con limite de costo por consulta y resultados que se borran solos.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: riesgo-delictivo-cdmx
+    Description: Debe ser el mismo valor usado en las plantillas 01 a 03
+    AllowedPattern: "^[a-z0-9-]{3,30}$"
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  MaxBytesPorConsulta:
+    Type: Number
+    Default: 2147483648
+    Description: Una consulta que escanee mas de esto (2 GB) se cancela. El CSV pesa ~0.5 GB
+
+Resources:
+  ResultadosBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-athena-results-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: borrar-resultados-en-1-dia
+            Status: Enabled
+            ExpirationInDays: 1
+      Tags:
+        - Key: project
+          Value: !Ref ProjectName
+        - Key: environment
+          Value: !Ref Environment
+
+  WorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}"
+      Description: Consultas de exploracion con limite de bytes escaneados
+      State: ENABLED
+      WorkGroupConfiguration:
+        EnforceWorkGroupConfiguration: true
+        PublishCloudWatchMetricsEnabled: true
+        BytesScannedCutoffPerQuery: !Ref MaxBytesPorConsulta
+        ResultConfiguration:
+          OutputLocation: !Sub "s3://${ResultadosBucket}/resultados/"
+
+  Database:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: riesgo_delictivo_cdmx
+
+  TablaBronzeFgj:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref Database
+      TableInput:
+        Name: bronze_fgj
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: csv
+          skip.header.line.count: "1"
+        StorageDescriptor:
+          Location: !Sub
+            - "s3://${Bucket}/fgj/"
+            - Bucket: !ImportValue
+                Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-name"
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.serde2.OpenCSVSerde
+            Parameters:
+              separatorChar: ","
+              quoteChar: "\""
+              escapeChar: "\\"
+          Columns:
+            - { Name: anio_inicio, Type: string }
+            - { Name: mes_inicio, Type: string }
+            - { Name: fecha_inicio, Type: string }
+            - { Name: hora_inicio, Type: string }
+            - { Name: anio_hecho, Type: string }
+            - { Name: mes_hecho, Type: string }
+            - { Name: fecha_hecho, Type: string }
+            - { Name: hora_hecho, Type: string }
+            - { Name: delito, Type: string }
+            - { Name: categoria_delito, Type: string }
+            - { Name: competencia, Type: string }
+            - { Name: fiscalia, Type: string }
+            - { Name: agencia, Type: string }
+            - { Name: unidad_investigacion, Type: string }
+            - { Name: colonia_hecho, Type: string }
+            - { Name: colonia_catalogo, Type: string }
+            - { Name: alcaldia_hecho, Type: string }
+            - { Name: alcaldia_catalogo, Type: string }
+            - { Name: municipio_hecho, Type: string }
+            - { Name: latitud, Type: string }
+            - { Name: longitud, Type: string }
+
+Outputs:
+  WorkGroupName:
+    Value: !Ref WorkGroup
+  ResultadosBucketName:
+    Value: !Ref ResultadosBucket

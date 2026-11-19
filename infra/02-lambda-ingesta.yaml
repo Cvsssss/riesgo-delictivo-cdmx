@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: riesgo-delictivo-cdmx - Primera Lambda (ingesta) que descarga el CSV de carpetas de investigacion de la FGJ-CDMX hacia la capa bronze, con un rol de minimo privilegio.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: riesgo-delictivo-cdmx
+    Description: Debe ser el mismo valor usado en la plantilla 01
+    AllowedPattern: "^[a-z0-9-]{3,30}$"
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  FgjUrl:
+    Type: String
+    Default: https://archivo.datos.cdmx.gob.mx/FGJ/carpetas/carpetasFGJ_acumulado_2025_01.csv
+    Description: URL del CSV acumulado de carpetas de investigacion (FGJ-CDMX). Se cambia aqui si publican uno mas reciente
+
+Resources:
+  IngestaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-ingesta-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: escribir-en-bronze
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  - !Sub
+                    - "${BucketArn}/inegi/*"
+                    - BucketArn: !ImportValue
+                        Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-arn"
+                  - !Sub
+                    - "${BucketArn}/fgj/*"
+                    - BucketArn: !ImportValue
+                        Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-arn"
+
+  IngestaFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-${Environment}-ingesta"
+      RetentionInDays: 14
+
+  IngestaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: IngestaFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-ingesta"
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt IngestaFunctionRole.Arn
+      Timeout: 900
+      MemorySize: 512
+      Environment:
+        Variables:
+          FGJ_URL: !Ref FgjUrl
+          BRONZE_BUCKET: !ImportValue
+            Fn::Sub: "${ProjectName}-${Environment}-bronze-bucket-name"
+      Code:
+        ZipFile: |
+          import os
+          import time
+          import urllib.request
+
+          import boto3
+          from boto3.s3.transfer import TransferConfig
+
+          s3 = boto3.client("s3")
+          BUCKET = os.environ["BRONZE_BUCKET"]
+          URL = os.environ["FGJ_URL"]
+          KEY = "fgj/carpetas_acumulado.csv"
+
+
+          def handler(event, context):
+              inicio = time.time()
+              req = urllib.request.Request(
+                  URL, headers={"User-Agent": "Mozilla/5.0 (data-bloom-ingesta)"}
+              )
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  esperado = r.headers.get("Content-Length")
+                  s3.upload_fileobj(
+                      r,
+                      BUCKET,
+                      KEY,
+                      ExtraArgs={"ContentType": "text/csv"},
+                      Config=TransferConfig(
+                          multipart_chunksize=16 * 1024 * 1024, max_concurrency=4
+                      ),
+                  )
+              real = s3.head_object(Bucket=BUCKET, Key=KEY)["ContentLength"]
+              if esperado and int(esperado) != real:
+                  raise RuntimeError(f"Tamano distinto: {esperado} vs {real}")
+              resultado = {
+                  "bucket": BUCKET,
+                  "key": KEY,
+                  "mb": round(real / 1048576, 1),
+                  "segundos": round(time.time() - inicio, 1),
+              }
+              print(resultado)
+              return resultado
+      Tags:
+        - Key: project
+          Value: !Ref ProjectName
+        - Key: environment
+          Value: !Ref Environment
+
+Outputs:
+  IngestaFunctionName:
+    Value: !Ref IngestaFunction
+  IngestaFunctionArn:
+    Value: !GetAtt IngestaFunction.Arn

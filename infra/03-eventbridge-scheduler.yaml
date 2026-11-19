@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: riesgo-delictivo-cdmx - EventBridge Scheduler que lanza la Lambda de ingesta todos los lunes a las 9:00 am (hora de Ciudad de Mexico).
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: riesgo-delictivo-cdmx
+    Description: Debe ser el mismo valor usado en las plantillas 01 y 02
+    AllowedPattern: "^[a-z0-9-]{3,30}$"
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  ScheduleState:
+    Type: String
+    Default: ENABLED
+    AllowedValues: [ENABLED, DISABLED]
+    Description: Usar DISABLED para crear la programacion sin que se ejecute
+
+Resources:
+  SchedulerInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-scheduler-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: invocar-lambda-de-ingesta
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-${Environment}-ingesta"
+
+  IngestaSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-ingesta-lunes"
+      Description: Ejecuta la Lambda de ingesta todos los lunes a las 9:00 am
+      ScheduleExpression: "cron(0 9 ? * MON *)"
+      ScheduleExpressionTimezone: America/Mexico_City
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      State: !Ref ScheduleState
+      Target:
+        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-${Environment}-ingesta"
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"origen": "eventbridge-scheduler"}'
+        RetryPolicy:
+          MaximumRetryAttempts: 2
+          MaximumEventAgeInSeconds: 3600
+
+Outputs:
+  ScheduleName:
+    Value: !Ref IngestaSchedule
+  SchedulerRoleArn:
+    Value: !GetAtt SchedulerInvokeRole.Arn

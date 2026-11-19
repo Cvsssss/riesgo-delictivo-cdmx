@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: riesgo-delictivo-cdmx - Tablas de Athena sobre la Capa Silver consultable (indice por zona y por alcaldia) y dos consultas guardadas.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: riesgo-delictivo-cdmx
+    Description: Debe ser el mismo valor usado en las plantillas 01 a 05
+    AllowedPattern: "^[a-z0-9-]{3,30}$"
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Resources:
+  TablaIndiceCelda:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: riesgo_delictivo_cdmx      # la crea la plantilla 04
+      TableInput:
+        Name: indice_celda
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: csv
+          skip.header.line.count: "1"
+        StorageDescriptor:
+          Location: !Sub
+            - "s3://${Bucket}/consultable/indice_celda/"
+            - Bucket: !ImportValue
+                Fn::Sub: "${ProjectName}-${Environment}-silver-bucket-name"
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+            Parameters:
+              field.delim: ","
+              serialization.format: ","
+          Columns:
+            - { Name: celda_id, Type: int }
+            - { Name: lat, Type: double }
+            - { Name: lon, Type: double }
+            - { Name: alcaldia, Type: string }
+            - { Name: tipo_periodo, Type: string }
+            - { Name: periodo, Type: int }
+            - { Name: delitos_ponderados_prom_anual, Type: double }
+            - { Name: registros, Type: int }
+            - { Name: puntaje, Type: double }
+            - { Name: nivel, Type: string }
+            - { Name: version_metodologia, Type: string }
+            - { Name: actualizado, Type: string }
+
+  TablaIndiceAlcaldia:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: riesgo_delictivo_cdmx
+      TableInput:
+        Name: indice_alcaldia
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: csv
+          skip.header.line.count: "1"
+        StorageDescriptor:
+          Location: !Sub
+            - "s3://${Bucket}/consultable/indice_alcaldia/"
+            - Bucket: !ImportValue
+                Fn::Sub: "${ProjectName}-${Environment}-silver-bucket-name"
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+            Parameters:
+              field.delim: ","
+              serialization.format: ","
+          Columns:
+            - { Name: alcaldia, Type: string }
+            - { Name: poblacion_2020, Type: int }
+            - { Name: tipo_periodo, Type: string }
+            - { Name: periodo, Type: int }
+            - { Name: tasa_ponderada_por_100k, Type: double }
+            - { Name: puntaje, Type: double }
+            - { Name: nivel, Type: string }
+            - { Name: version_metodologia, Type: string }
+            - { Name: actualizado, Type: string }
+
+  ConsultaZonasAltas:
+    Type: AWS::Athena::NamedQuery
+    DependsOn: TablaIndiceCelda
+    Properties:
+      Name: zonas-de-riesgo-alto-por-mes
+      Description: Las 10 zonas con mas delitos ponderados en un mes (cambia el valor de periodo, 1 a 12)
+      Database: riesgo_delictivo_cdmx
+      WorkGroup: !Sub "${ProjectName}-${Environment}"
+      QueryString: |
+        SELECT alcaldia, lat, lon, puntaje, nivel, delitos_ponderados_prom_anual
+        FROM indice_celda
+        WHERE tipo_periodo = 'mes' AND periodo = 12 AND nivel = 'ALTO'
+        ORDER BY delitos_ponderados_prom_anual DESC
+        LIMIT 10;
+
+  ConsultaAlcaldias:
+    Type: AWS::Athena::NamedQuery
+    DependsOn: TablaIndiceAlcaldia
+    Properties:
+      Name: tasa-por-alcaldia
+      Description: Delitos ponderados por 100,000 habitantes al ano, por alcaldia
+      Database: riesgo_delictivo_cdmx
+      WorkGroup: !Sub "${ProjectName}-${Environment}"
+      QueryString: |
+        SELECT alcaldia, poblacion_2020, tasa_ponderada_por_100k, nivel
+        FROM indice_alcaldia
+        WHERE tipo_periodo = 'anio'
+        ORDER BY tasa_ponderada_por_100k DESC;

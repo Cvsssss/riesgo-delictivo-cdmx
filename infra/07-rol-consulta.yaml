@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: riesgo-delictivo-cdmx - IAM Role de los usuarios que solo pueden consultar la Capa Silver consultable desde Athena.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: riesgo-delictivo-cdmx
+    Description: Debe ser el mismo valor usado en las plantillas 01 a 06
+    AllowedPattern: "^[a-z0-9-]{3,30}$"
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Resources:
+  RolConsulta:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-consulta-athena"
+      Description: Solo consulta las tablas de la Capa Silver consultable con Athena
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root" }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: consultar-solo-athena
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AthenaSoloEnElGrupoDelProyecto
+                Effect: Allow
+                Action:
+                  - athena:StartQueryExecution
+                  - athena:StopQueryExecution
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                  - athena:GetWorkGroup
+                  - athena:ListQueryExecutions
+                  - athena:GetNamedQuery
+                  - athena:BatchGetNamedQuery
+                  - athena:ListNamedQueries
+                Resource: !Sub "arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${ProjectName}-${Environment}"
+              - Sid: AthenaListadosDeLaConsola
+                Effect: Allow
+                Action:
+                  - athena:ListWorkGroups
+                  - athena:ListDataCatalogs
+                  - athena:ListDatabases
+                  - athena:GetDatabase
+                  - athena:ListTableMetadata
+                  - athena:GetTableMetadata
+                Resource: "*"
+              - Sid: CatalogoSoloTablasSilver
+                Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetDatabases
+                  - glue:GetTable
+                  - glue:GetTables
+                  - glue:GetPartitions
+                Resource:
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog"
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/riesgo_delictivo_cdmx"
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/riesgo_delictivo_cdmx/indice_celda"
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/riesgo_delictivo_cdmx/indice_alcaldia"
+              - Sid: LeerSoloLaCapaSilverConsultable
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub
+                  - "${BucketArn}/consultable/*"
+                  - BucketArn: !ImportValue
+                      Fn::Sub: "${ProjectName}-${Environment}-silver-bucket-arn"
+              - Sid: ListarElBucketSilver
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource: !ImportValue
+                  Fn::Sub: "${ProjectName}-${Environment}-silver-bucket-arn"
+                Condition:
+                  StringLike:
+                    s3:prefix: ["consultable/*", "consultable", ""]
+              - Sid: ResultadosDeAthena
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:GetBucketLocation
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-athena-results-${AWS::AccountId}"
+                  - !Sub "arn:aws:s3:::${ProjectName}-${Environment}-athena-results-${AWS::AccountId}/*"
+      Tags:
+        - Key: project
+          Value: !Ref ProjectName
+        - Key: environment
+          Value: !Ref Environment
+
+Outputs:
+  RolConsultaArn:
+    Value: !GetAtt RolConsulta.Arn
+  EnlaceParaUsarElRol:
+    Description: Abre este enlace con tu usuario para cambiar a este rol en la consola
+    Value: !Sub "https://signin.aws.amazon.com/switchrole?roleName=${RolConsulta}&account=${AWS::AccountId}&displayName=consulta-athena"
