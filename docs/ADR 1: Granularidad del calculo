@@ -1,45 +1,53 @@
 # ADR 0001: Granularidad del cálculo de riesgo
 
-- **Estado:** propuesta
-- **Fecha:** 2026-11-12
-- **Decide:** equipo Data Bloom 
+- **Estado:** aceptada para la demo; pendiente de validar con SAFEZONE
+- **Fecha:** 2026-11-18
+- **Decide:** equipo Data Bloom
 
 ## Contexto
 
-El pipeline calcula un nivel de riesgo delictivo (bajo, medio o alto) por zona y periodo. Hay que decidir qué es una "zona" (alcaldía o colonia) y qué es un "periodo" (mes, día u hora) **antes de construir la transformación hacia las Capas Silver**, porque esta decisión define:
+El pipeline calcula un nivel de riesgo (bajo, medio o alto) por zona y periodo. Hay que decidir qué es una "zona" y un "periodo" antes de construir la transformación, porque define las columnas de las tablas Silver, la fórmula y la población necesaria para normalizar.
 
-- las columnas y la partición de las tablas de la Capa Silver,
-- la fórmula de riesgo,
-- qué población se necesita para normalizar, y a qué nivel geográfico existe.
-
-Los orígenes son la API de INEGI y la API de PGR. La ejecución es semanal.
+Datos usados: CSV acumulado de carpetas de investigación de la FGJ-CDMX (2,098,743 registros, 2016 a enero de 2025, CC BY 4.0) y Censo de Población y Vivienda 2020 del INEGI. El archivo de la PGR del diagrama no se usó: la PGR dejó de existir en 2018 (hoy FGR) y no hay un equivalente en datos abiertos de la CDMX. Falta confirmarlo con quien corrigió el diagrama.
 
 ## Datos disponibles en los orígenes
 
-Llenar al revisar los archivos Excel:
-
-| Campo | INEGI | PGR |
+| Campo | FGJ-CDMX | INEGI (Censo 2020) |
 |---|---|---|
-| Fecha del delito | Si | Si |
-| Hora del delito | No | Si |
-| Alcaldía | Si | Si |
-| Colonia | Si | Si |
+| Fecha y hora del delito | Sí (`fecha_hecho`, `hora_hecho`) | No aplica |
+| Alcaldía | Sí; 44,259 registros (2.1%) con valor no válido | Sí |
+| Colonia | Sí (`colonia_hecho`) | No |
+| Coordenadas | Sí; 88,216 registros sin coordenadas válidas (4.2%) | No |
+| Población para normalizar | No | Alcaldía y localidad; no hay por colonia |
 
 ## Opciones
 
-| Opción | Zona | Periodo | Las fuentes traen los campos | Casos por celda (zona y periodo)
-|---|---|---|---|---|---|
-| A | Alcaldía | Mes | Si | 1,000
-| B | Colonia | Mes | Si | 9
-| C | Colonia | Día | Si | 0.3
-| D | Colonia | Hora | No | 0.01
+Las estimaciones de B, C y D son del equipo, por colonia y por unidad de periodo en un solo año; no se han medido (consultas en el anexo).
+
+| Opción | Zona | Periodo | Casos por celda | Útil para los mapas de SAFEZONE |
+|---|---|---|---|---|
+| A | Alcaldía | Mes | ≈10,000 en promedio; mínimo estimado ≈1,500 (Milpa Alta) | Pocos polígonos: no permite un mapa de puntos |
+| B | Colonia | Mes | ≈9 (estimado) | Por validar |
+| C | Colonia | Día | ≈0.3 (estimado) | Por validar |
+| D | Colonia | Hora | ≈0.01 (estimado) | Por validar |
+| E | Cuadrícula de 1 km (893 celdas con datos) | Mes del año y semana del año | Mes: promedio 178, mediana 123 (sumados entre años); semana: promedio 123, mediana 85. 83.1% de celda-mes y 80.2% de celda-semana con 10 o más registros | Sí: mapa de puntos por época del año |
 
 ## Decisión
 
-Punto de partida del SOW: colonia o alcaldía por mes.
+Opción **E**: cuadrícula de 1 km por mes del año, con la semana del año como vista adicional (ventana circular de 3 semanas). Es la única que da puntos para el mapa con casos suficientes en más del 80% de las combinaciones. Se promedia por año (2016 a 2025) y las celdas con menos de 10 registros se marcan "SIN INFORMACION SUFICIENTE".
+
+No hay población por celda, así que el índice es **relativo**: percentil de los delitos ponderados frente a las demás celdas del mismo periodo (alto ≥ 80; medio ≥ 50; bajo el resto). Como contexto por habitante se calcula también la opción **A**: tasa ponderada por 100,000 habitantes por alcaldía (Censo 2020).
+
+Pesos por delito (supuesto del equipo, sin validación estadística): 10 homicidio doloso, feminicidio, secuestro, plagio; 8 violación y lesiones por arma de fuego; 5 y 3 para robos según gravedad; 1 bajo impacto; 0 (excluido) hechos no delictivos.
 
 ## Consecuencias
 
-- Las tablas de la Capa Silver se diseñan con esta unidad de zona y periodo.
-- La población para normalizar debe existir a ese mismo nivel; si solo existe por alcaldía, la zona no puede ser colonia sin otra fuente.
-- Si se necesita una granularidad más fina, se registra como solicitud de cambio.
+- Las tablas Silver usan celda, tipo de periodo y periodo. La Silver 1 guarda conteos por categoría, así que cambiar los pesos no obliga a releer el archivo original.
+- El índice es posición relativa, no nivel absoluto: la cantidad de celdas por nivel casi no cambia entre épocas.
+- Donde se denuncia más puede parecer más riesgoso (cifra negra).
+- Colonia o más detalle se pide como solicitud de cambio (SOW sección 11) y requiere población a ese nivel.
+
+## Cuándo se revisa
+
+Si el cliente pide otro nivel de detalle, si aparece población por colonia, si la FGJ publica registros posteriores a enero de 2025 o si cambian los campos de los orígenes.
+
