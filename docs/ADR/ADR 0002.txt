@@ -1,0 +1,48 @@
+# ADR 0002: Lambda o Glue para la transformación
+
+- **Estado:** aceptada
+- **Fecha:** 2026-11-18
+- **Decide:** equipo Data Bloom
+
+## Contexto
+
+La segunda etapa lee bronze, limpia, valida y escribe las dos Capas Silver. Hay que elegir con qué se ejecuta: AWS Lambda o AWS Glue (Spark). Se midió con los datos reales.
+
+## Volumen medido
+
+| Dato | Valor |
+|---|---|
+| CSV de la FGJ en bronze | 534 MB, 2,098,743 registros (el archivo trae saltos de línea dentro de campos: 2,184,753 líneas) |
+| CSV de población (INEGI) | 0.5 MB |
+| Crecimiento | ≈1 MB por semana si la fuente se reanudara (hoy el archivo termina en enero de 2025) |
+| Corridas | 4 a 5 por mes (cada lunes) |
+
+## Opciones
+
+| Opción | Costo estimado | Tiempo | Observaciones |
+|---|---|---|---|
+| Lambda (Python, solo biblioteca estándar, en streaming) | $0 (dentro de la capa gratuita) | **69.8 s medidos**, 149 MB de memoria usada (14.5% de los 1,024 MB configurados) | Sin dependencias; límites: 15 min, 10,240 MB de memoria y de `/tmp` |
+| Glue (Spark) | ≈$0.07 por corrida, ≈$0.37 al mes (supuesto: 2 DPU × $0.44/DPU-hora × 5 min) | Arranque de minutos | Sobra para este volumen |
+
+## Decisión
+
+Lambda con Python 3.13, 1,024 MB, 900 s de tiempo máximo y 1,024 MB de `/tmp`. Lee el CSV en streaming con el módulo `csv` (respeta los saltos de línea dentro de campos) y no carga el archivo completo en memoria. Usa 14.5% de la memoria y 8% del tiempo permitido.
+
+## Umbral para cambiar a Glue
+
+Se pasa a Glue si ocurre cualquiera de estos casos:
+
+- una corrida dura más de 10 minutos (alarma de CloudWatch en 600,000 ms);
+- la memoria usada supera 80% de la configurada (≈820 MB);
+- el volumen crece ocho veces (≈4 GB o ≈17 millones de registros);
+- se necesita una transformación que requiera Spark (uniones grandes, ventanas sobre todo el histórico).
+
+## Consecuencias
+
+- Costo de la transformación: $0 en la demo.
+- Todo el código está en `src/transformacion/transformacion.py` y se prueba con `tests/`.
+- Cambiar a Glue no altera las salidas Silver ni Athena.
+
+## Cuándo se revisa
+
+Cuando salte la alarma de duración o memoria, o cuando cambie el volumen o la fuente.
