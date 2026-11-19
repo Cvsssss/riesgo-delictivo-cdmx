@@ -1,58 +1,48 @@
-# ADR 0002: Lambda o Glue para la transformación de bronze a silver
+# ADR 0002: Lambda o Glue para la transformación
 
-- **Estado:** propuesta
-- **Fecha:** 2026-11-12
+- **Estado:** aceptada
+- **Fecha:** 2026-11-18
 - **Decide:** equipo Data Bloom
 
 ## Contexto
 
-La segunda Lambda del pipeline lee los archivos de bronze, los transforma y valida, y escribe en las dos Capas Silver. Hay que decidir si esa transformación corre en AWS Lambda o en AWS Glue.
+La segunda etapa lee bronze, limpia, valida y escribe las dos Capas Silver. Hay que elegir con qué se ejecuta: AWS Lambda o AWS Glue (Spark). Se midió con los datos reales.
 
-El proceso corre una vez por semana y procesa archivos Excel de INEGI y PGR.
-
-## Mediciones
+## Volumen medido
 
 | Dato | Valor |
 |---|---|
-| Tamaño de los archivos por corrida (MB) | [medir] |
-| Filas por corrida | [medir] |
-| Crecimiento esperado (por semana o por mes) | [estimar] |
-| Tiempo de ejecución en Lambda | [medir] |
-| Memoria usada | [medir] |
-| Ejecuciones por mes | 4 o 5 (una cada lunes) |
-
-## Límites de Lambda a considerar
-
-| Límite | Valor |
-|---|---|
-| Tiempo máximo por ejecución | 15 minutos |
-| Memoria máxima | 128 MB a 10,240 MB |
-| Almacenamiento temporal | Entre 512 MB y 10,240 MB |
-| Tamaño del paquete de despliegue | Paquete .zip: 50 MB comprimido y 250 MB descomprimido. Imagen de contenedor: hasta 10 GB |
+| CSV de la FGJ en bronze | 534 MB, 2,098,743 registros (el archivo trae saltos de línea dentro de campos: 2,184,753 líneas) |
+| CSV de población (INEGI) | 0.5 MB |
+| Crecimiento | ≈1 MB por semana si la fuente se reanudara (hoy el archivo termina en enero de 2025) |
+| Corridas | 4 a 5 por mes (cada lunes) |
 
 ## Opciones
 
-| | Lambda | Glue |
-|---|---|---|
-| Cómo corre | Función bajo demanda | Trabajo administrado (puede usar Spark) |
-| Tiempo de ejecución estimado | [de la tabla de mediciones] | [estimar] |
-| Costo por corrida | $0 (dentro del free tier mensual de Lambda) | ≈ $0.07 (Spark, 2 DPU, 5 min, estimado) |
-| Costo mensual | $0 | ≈ $0.37 (5 corridas, estimado sin medir) |
-| Complejidad de desarrollo y despliegue | Baja: una función dentro de la plantilla de CloudFormation, empaquetar la librería para leer Excel dentro de los límites del paquete | hay que definir el trabajo en la plantilla y probar el arranque |
-| Cabe en los límites con el volumen actual | [pendiente de medir] | [verificar timeout configurado del trabajo] |
+| Opción | Costo estimado | Tiempo | Observaciones |
+|---|---|---|---|
+| Lambda (Python, solo biblioteca estándar, en streaming) | $0 (dentro de la capa gratuita) | **69.8 s medidos**, 149 MB de memoria usada (14.5% de los 1,024 MB configurados) | Sin dependencias; límites: 15 min, 10,240 MB de memoria y de `/tmp` |
+| Glue (Spark) | ≈$0.07 por corrida, ≈$0.37 al mes (supuesto: 2 DPU × $0.44/DPU-hora × 5 min) | Arranque de minutos | Sobra para este volumen |
+
 ## Decisión
 
-## Umbral de cambio
+Lambda con Python 3.13, 1,024 MB, 900 s de tiempo máximo y 1,024 MB de `/tmp`. Lee el CSV en streaming con el módulo `csv` (respeta los saltos de línea dentro de campos) y no carga el archivo completo en memoria. Usa 14.5% de la memoria y 8% del tiempo permitido.
 
-Se cambia a Glue cuando ocurra **cualquiera** de estas condiciones.
+## Umbral para cambiar a Glue
 
-- Una corrida tarda más de [ej.: 10] minutos en Lambda.
-- La memoria usada supera [ej.: 80%] de la configurada.
-- El volumen por corrida crece [ej.: 100 veces] respecto al actual.
-- Se necesita Spark o procesamiento distribuido.
+Se pasa a Glue si ocurre cualquiera de estos casos:
+
+- una corrida dura más de 10 minutos (alarma de CloudWatch en 600,000 ms);
+- la memoria usada supera 80% de la configurada (≈820 MB);
+- el volumen crece ocho veces (≈4 GB o ≈17 millones de registros);
+- se necesita una transformación que requiera Spark (uniones grandes, ventanas sobre todo el histórico).
 
 ## Consecuencias
 
-- Si se elige Lambda: el costo se mantiene muy por debajo del límite de $25,500 MXN al mes del RFP y el despliegue queda en la plantilla de CloudFormation.
-- Se vigila el tiempo y la memoria de cada corrida en CloudWatch para detectar cuándo se acerca el umbral.
-- Si se cruza el umbral, se escribe un nuevo ADR que reemplaza a este.
+- Costo de la transformación: $0 en la demo.
+- Todo el código está en `src/transformacion/transformacion.py` y se prueba con `tests/`.
+- Cambiar a Glue no altera las salidas Silver ni Athena.
+
+## Cuándo se revisa
+
+Cuando salte la alarma de duración o memoria, o cuando cambie el volumen o la fuente.
